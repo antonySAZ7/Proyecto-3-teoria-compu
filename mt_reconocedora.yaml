@@ -1,0 +1,135 @@
+# ============================================================
+# MT Reconocedora: Lenguaje {a^n b^n c^n | n >= 1}
+# ============================================================
+# Esta Máquina de Turing reconoce cadenas donde la cantidad
+# de 'a's, 'b's y 'c's es igual y aparecen en ese orden.
+#
+# Algoritmo:
+#   1. Encontrar la 'a' más a la izquierda sin marcar, marcarla como X
+#   2. Moverse a la derecha para encontrar la primera 'b' sin marcar,
+#      marcarla como Y
+#   3. Continuar a la derecha para encontrar la primera 'c' sin marcar,
+#      marcarla como Z
+#   4. Regresar al inicio y repetir
+#   5. Cuando no quedan 'a's, verificar que tampoco queden 'b's ni 'c's
+#
+# Este lenguaje NO es libre de contexto, por lo que requiere
+# el poder computacional de una Máquina de Turing.
+# ============================================================
+
+mt:
+  states: [q0, q1, q2, q3, q4, qf]
+  input_alphabet: [a, b, c]
+  tape_alphabet: [a, b, c, X, Y, Z, B]
+  initial_state: q0
+  accept_states: [qf]
+  transitions:
+    # ── q0: Buscar la 'a' más a la izquierda sin marcar ──
+    # Si encontramos 'a', marcarla como X e ir a buscar 'b'
+    - state: q0
+      read: [a]
+      write: [X]
+      move: R
+      next: q1
+    # Si encontramos Y, todas las a's fueron marcadas → verificar
+    - state: q0
+      read: [Y]
+      write: [Y]
+      move: R
+      next: q4
+
+    # ── q1: Moverse a la derecha para encontrar la primera 'b' ──
+    # Saltar sobre a's y Y's
+    - state: q1
+      read: [a]
+      write: [a]
+      move: R
+      next: q1
+    - state: q1
+      read: [Y]
+      write: [Y]
+      move: R
+      next: q1
+    # Encontramos 'b': marcarla como Y e ir a buscar 'c'
+    - state: q1
+      read: [b]
+      write: [Y]
+      move: R
+      next: q2
+
+    # ── q2: Moverse a la derecha para encontrar la primera 'c' ──
+    # Saltar sobre b's y Z's
+    - state: q2
+      read: [b]
+      write: [b]
+      move: R
+      next: q2
+    - state: q2
+      read: [Z]
+      write: [Z]
+      move: R
+      next: q2
+    # Encontramos 'c': marcarla como Z y regresar al inicio
+    - state: q2
+      read: [c]
+      write: [Z]
+      move: L
+      next: q3
+
+    # ── q3: Regresar al inicio (moverse todo a la izquierda) ──
+    - state: q3
+      read: [a]
+      write: [a]
+      move: L
+      next: q3
+    - state: q3
+      read: [b]
+      write: [b]
+      move: L
+      next: q3
+    - state: q3
+      read: [Y]
+      write: [Y]
+      move: L
+      next: q3
+    - state: q3
+      read: [Z]
+      write: [Z]
+      move: L
+      next: q3
+    # Encontramos X: moverse a la derecha y reiniciar búsqueda
+    - state: q3
+      read: [X]
+      write: [X]
+      move: R
+      next: q0
+
+    # ── q4: Verificar que todas las b's y c's fueron marcadas ──
+    # Saltar sobre Y's y Z's
+    - state: q4
+      read: [Y]
+      write: [Y]
+      move: R
+      next: q4
+    - state: q4
+      read: [Z]
+      write: [Z]
+      move: R
+      next: q4
+    # Si llegamos al blanco, todo fue marcado → aceptar
+    - state: q4
+      read: [B]
+      write: [B]
+      move: R
+      next: qf
+
+# ============================================================
+# Cadenas de prueba
+# ============================================================
+# Las primeras 2 deben ser ACEPTADAS (longitud >= 5)
+# Las últimas 2 deben ser RECHAZADAS (longitud >= 5)
+inputs:
+  - "aabbcc"        # a^2 b^2 c^2 → ACEPTADA
+  - "aaabbbccc"     # a^3 b^3 c^3 → ACEPTADA
+  - "aabbc"         # 2 a's, 2 b's, 1 c → RECHAZADA
+  - "aabbccc"       # 2 a's, 2 b's, 3 c's → RECHAZADA
