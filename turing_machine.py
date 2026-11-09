@@ -6,37 +6,87 @@ Este módulo contiene la clase principal TuringMachine que permite
 simular una Máquina de Turing de una sola cinta.
 """
 
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Iterator
+
+
+@dataclass(frozen=True)
+class Transition:
+    """Regla determinista para una celda de la cinta."""
+
+    state: str
+    read: str
+    write: str
+    move: str
+    next_state: str
+
 
 class SimulationResult:
     """Resultado de la simulación de una cadena en la MT."""
 
-    def __init__(self, input_string, accepted, steps, final_tape, halted_reason=""):
+    def __init__(
+        self,
+        input_string: str,
+        accepted: bool,
+        steps: list[str],
+        final_tape: str,
+        halted_reason: str = "",
+        *,
+        limit_reached: bool = False,
+        applied_transitions: Sequence[Transition] = (),
+    ) -> None:
         self.input_string = input_string
         self.accepted = accepted
         self.steps = steps  # Lista de descripciones instantáneas (IDs)
         self.final_tape = final_tape
         self.halted_reason = halted_reason
+        self.limit_reached = limit_reached
+        self.applied_transitions = applied_transitions
 
-    def __str__(self):
+    def __str__(self) -> str:
+        return "\n".join((self.trace_header(), *self.trace_steps(), self.trace_outcome()))
+
+    def trace_header(self) -> str:
         separator = "=" * 60
-        result_icon = "✅ ACEPTADA" if self.accepted else "❌ RECHAZADA"
         display_input = self.input_string if self.input_string else "ε (vacía)"
-
-        lines = [
+        return "\n".join((
             separator,
             f'  Cadena de entrada: "{display_input}"',
             separator,
             "  Simulación paso a paso (Descripciones Instantáneas):",
+            "  En cada paso, el estado aparece justo antes del símbolo bajo el cabezal.",
+            "  B representa una celda en blanco.",
             "",
+        ))
+
+    def trace_steps(self) -> Iterator[str]:
+        for number, description in enumerate(self.steps):
+            step = f"    Paso {number}: {description}"
+            if 0 < number <= len(self.applied_transitions):
+                rule = self.applied_transitions[number - 1]
+                direction = "derecha" if rule.move == "R" else "izquierda"
+                yield (
+                    f"      En {rule.state} lee {rule.read!r}, escribe {rule.write!r}, "
+                    f"mueve el cabezal a la {direction} ({rule.move}) y pasa a {rule.next_state}.\n"
+                    f"{step}"
+                )
+            else:
+                yield step
+
+    def trace_outcome(self) -> str:
+        separator = "=" * 60
+        if self.limit_reached:
+            verdict = "SIN VEREDICTO (LÍMITE DE PASOS)"
+        else:
+            verdict = "✅ ACEPTADA" if self.accepted else "❌ RECHAZADA"
+        lines = [
+            "",
+            f"  Resultado: {verdict}",
+            f"  Cinta final: {self.final_tape}",
         ]
-
-        for i, step in enumerate(self.steps):
-            lines.append(f"    Paso {i}: {step}")
-
-        lines.append("")
-        lines.append(f"  Resultado: {result_icon}")
-        lines.append(f"  Cinta final: {self.final_tape}")
-
         if self.halted_reason:
             lines.append(f"  Razón: {self.halted_reason}")
 
@@ -55,24 +105,33 @@ class TuringMachine:
         initial_state: Estado inicial
         accept_states: Lista de estados de aceptación
         transitions: Lista de funciones de transición
-        blank_symbol: Símbolo blanco de la cinta (por defecto 'B')
+        BLANK: Símbolo blanco de la cinta ('B')
     """
 
     BLANK = "B"
 
-    def __init__(self, states, input_alphabet, tape_alphabet,
-                 initial_state, accept_states, transitions):
-        self.states = states
-        self.input_alphabet = input_alphabet
-        self.tape_alphabet = tape_alphabet
-        self.initial_state = initial_state
-        self.accept_states = accept_states
+    def __init__(
+        self,
+        states: Sequence[str | int],
+        input_alphabet: Sequence[str | int],
+        tape_alphabet: Sequence[str | int],
+        initial_state: str | int,
+        accept_states: Sequence[str | int],
+        transitions: Sequence[Mapping[str, object]],
+    ) -> None:
+        self.states = [str(state) for state in states]
+        self.input_alphabet = [str(symbol) for symbol in input_alphabet]
+        self.tape_alphabet = [str(symbol) for symbol in tape_alphabet]
+        self.initial_state = str(initial_state)
+        self.accept_states = [str(state) for state in accept_states]
         self.transitions = transitions
+        self._input_symbols = frozenset(self.input_alphabet)
+        self._accepting_states = frozenset(self.accept_states)
 
-        # Validaciones básicas
         self._validate()
+        self._transition_table = self._index_transitions()
 
-    def _validate(self):
+    def _validate(self) -> None:
         """Valida la configuración de la MT."""
         if self.initial_state not in self.states:
             raise ValueError(
@@ -87,6 +146,15 @@ class TuringMachine:
                     f"no está en la lista de estados."
                 )
 
+        if self.BLANK not in self.tape_alphabet or self.BLANK in self._input_symbols:
+            raise ValueError(
+                f"El blanco '{self.BLANK}' debe pertenecer solo al alfabeto de la cinta."
+            )
+
+        for symbol in self.tape_alphabet:
+            if len(symbol) != 1:
+                raise ValueError(f"Cada símbolo de cinta debe ser un solo carácter: {symbol!r}.")
+
         for symbol in self.input_alphabet:
             if symbol not in self.tape_alphabet:
                 raise ValueError(
@@ -94,28 +162,44 @@ class TuringMachine:
                     f"no está en el alfabeto de la cinta."
                 )
 
-    def _find_transition(self, current_state, current_symbol):
-        """
-        Busca una transición que coincida con el estado actual
-        y el símbolo leído de la cinta.
+    def _transition_symbol(self, value: object, field: str) -> str:
+        if isinstance(value, list):
+            if len(value) != 1:
+                raise ValueError(f"'{field}' debe indicar un símbolo para una sola celda.")
+            value = value[0]
+        if type(value) not in (str, int) or str(value) not in self.tape_alphabet:
+            raise ValueError(f"'{field}' contiene un símbolo ajeno al alfabeto de cinta: {value!r}.")
+        return str(value)
 
-        Retorna la transición encontrada o None si no hay transición válida.
-        """
-        for t in self.transitions:
-            t_state = str(t["state"])
-            # El campo 'read' puede ser una lista o un valor simple
-            t_read = t["read"]
-            if isinstance(t_read, list):
-                t_read_symbol = str(t_read[0])
-            else:
-                t_read_symbol = str(t_read)
+    def _index_transitions(self) -> dict[tuple[str, str], Transition]:
+        table: dict[tuple[str, str], Transition] = {}
+        for number, rule in enumerate(self.transitions, 1):
+            try:
+                if type(rule["state"]) not in (str, int) or type(rule["next"]) not in (str, int):
+                    raise ValueError("'state' y 'next' deben identificar estados.")
+                state, next_state = str(rule["state"]), str(rule["next"])
+                if state not in self.states or next_state not in self.states:
+                    raise ValueError(f"La regla usa un estado sin declarar: {state!r} → {next_state!r}.")
+                read = self._transition_symbol(rule["read"], "read")
+                write = self._transition_symbol(rule["write"], "write")
+                move = str(rule["move"]).upper()
+                if move not in ("L", "R"):
+                    raise ValueError("'move' debe ser L o R.")
+                key = (state, read)
+                if key in table:
+                    raise ValueError(f"δ({state}, {read}) ya tiene una regla.")
+                table[key] = Transition(state, read, write, move, next_state)
+            except KeyError as error:
+                raise ValueError(f"Transición {number}: falta el campo {error.args[0]!r}.") from error
+            except ValueError as error:
+                raise ValueError(f"Transición {number}: {error}") from error
+        return table
 
-            if t_state == current_state and t_read_symbol == current_symbol:
-                return t
+    @property
+    def transition_rules(self) -> tuple[Transition, ...]:
+        return tuple(self._transition_table.values())
 
-        return None
-
-    def _get_instantaneous_description(self, tape, head, state):
+    def _get_instantaneous_description(self, tape: list[str], head: int, state: str) -> str:
         """
         Genera la descripción instantánea (ID) de la configuración actual.
 
@@ -130,49 +214,32 @@ class TuringMachine:
         right_bound = len(tape) - 1
 
         # Encontrar el primer símbolo no-blanco o la posición del cabezal
-        while left_bound < head and str(tape[left_bound]) == self.BLANK:
+        while left_bound < head and tape[left_bound] == self.BLANK:
             left_bound += 1
 
         # Encontrar el último símbolo no-blanco o la posición del cabezal
-        while right_bound > head and str(tape[right_bound]) == self.BLANK:
+        while right_bound > head and tape[right_bound] == self.BLANK:
             right_bound -= 1
 
-        # Construir la descripción instantánea
-        parts = []
+        return " ".join([*tape[left_bound:head], state, *tape[head:right_bound + 1]])
 
-        # Símbolos a la izquierda del cabezal
-        for i in range(left_bound, head):
-            parts.append(str(tape[i]))
-
-        # Estado actual (insertado antes del símbolo bajo el cabezal)
-        parts.append(state)
-
-        # Símbolo bajo el cabezal y símbolos a la derecha
-        for i in range(head, right_bound + 1):
-            parts.append(str(tape[i]))
-
-        return " ".join(parts)
-
-    def _get_final_tape(self, tape):
+    def _get_final_tape(self, tape: list[str]) -> str:
         """Retorna el contenido de la cinta sin los blancos iniciales y finales."""
-        # Convertir todo a string
-        tape_str = [str(s) for s in tape]
-
         # Encontrar límites no-blancos
         left = 0
-        while left < len(tape_str) and tape_str[left] == self.BLANK:
+        while left < len(tape) and tape[left] == self.BLANK:
             left += 1
 
-        right = len(tape_str) - 1
-        while right >= left and tape_str[right] == self.BLANK:
+        right = len(tape) - 1
+        while right >= left and tape[right] == self.BLANK:
             right -= 1
 
         if left > right:
             return self.BLANK  # Cinta vacía
 
-        return " ".join(tape_str[left:right + 1])
+        return " ".join(tape[left:right + 1])
 
-    def simulate(self, input_string, max_steps=10000):
+    def simulate(self, input_string: str, max_steps: int = 10000) -> SimulationResult:
         """
         Simula la MT con la cadena de entrada proporcionada.
 
@@ -183,97 +250,64 @@ class TuringMachine:
         Returns:
             SimulationResult con el resultado de la simulación
         """
-        # Inicializar la cinta
-        if input_string:
-            tape = [str(c) for c in input_string]
-        else:
-            tape = [self.BLANK]
-
+        if max_steps < 0:
+            raise ValueError("El límite de pasos debe ser mayor o igual a cero.")
+        tape = list(input_string) or [self.BLANK]
         head = 0
-        current_state = str(self.initial_state)
-        steps = []
+        current_state = self.initial_state
+        steps = [self._get_instantaneous_description(tape, head, current_state)]
+        invalid_symbols = sorted(set(input_string) - self._input_symbols)
+        if invalid_symbols:
+            symbols = ", ".join(map(repr, invalid_symbols))
+            return SimulationResult(
+                input_string, False, steps, self._get_final_tape(tape),
+                f"Símbolos ajenos al alfabeto de entrada: {symbols}.",
+            )
 
-        # Registrar la configuración inicial (ID)
-        initial_id = self._get_instantaneous_description(tape, head, current_state)
-        steps.append(initial_id)
-
-        for step_num in range(max_steps):
-            # Leer el símbolo actual bajo el cabezal
-            current_symbol = str(tape[head])
-
-            # Verificar si estamos en un estado de aceptación
-            if current_state in [str(s) for s in self.accept_states]:
-                return SimulationResult(
-                    input_string=input_string,
-                    accepted=True,
-                    steps=steps,
-                    final_tape=self._get_final_tape(tape),
-                    halted_reason="Se alcanzó un estado de aceptación."
-                )
-
-            # Buscar transición aplicable
-            transition = self._find_transition(current_state, current_symbol)
-
+        applied_transitions: list[Transition] = []
+        limit_reached = False
+        while current_state not in self._accepting_states:
+            current_symbol = tape[head]
+            transition = self._transition_table.get((current_state, current_symbol))
             if transition is None:
-                # No hay transición: la MT se detiene
-                return SimulationResult(
-                    input_string=input_string,
-                    accepted=False,
-                    steps=steps,
-                    final_tape=self._get_final_tape(tape),
-                    halted_reason=(
-                        f"No se encontró transición para "
-                        f"δ({current_state}, {current_symbol})."
-                    )
+                reason = (
+                    f"No hay una transición para δ({current_state}, {current_symbol}). "
+                    f"La máquina se bloqueó en {current_state}, que no es un estado de aceptación."
                 )
+                break
+            if len(applied_transitions) >= max_steps:
+                limit_reached = True
+                reason = (
+                    f"Se alcanzó el límite de {max_steps} pasos en {current_state} "
+                    "y aún hay una transición disponible."
+                )
+                break
 
-            # Aplicar la transición
-            # Obtener el símbolo a escribir
-            t_write = transition["write"]
-            if isinstance(t_write, list):
-                write_symbol = str(t_write[0])
-            else:
-                write_symbol = str(t_write)
-
-            # Escribir en la cinta
-            tape[head] = write_symbol
-
-            # Obtener la dirección de movimiento
-            move = str(transition["move"]).upper()
-
-            # Obtener el nuevo estado
-            new_state = str(transition["next"])
-
-            # Mover el cabezal
-            if move == "R":
+            tape[head] = transition.write
+            if transition.move == "R":
                 head += 1
                 # Extender la cinta a la derecha si es necesario
                 if head >= len(tape):
                     tape.append(self.BLANK)
-            elif move == "L":
+            else:
                 head -= 1
                 # Extender la cinta a la izquierda si es necesario
                 if head < 0:
                     tape.insert(0, self.BLANK)
                     head = 0
 
-            # Actualizar el estado
-            current_state = new_state
+            current_state = transition.next_state
+            applied_transitions.append(transition)
+            steps.append(self._get_instantaneous_description(tape, head, current_state))
+        else:
+            reason = f"Se alcanzó {current_state}, un estado de aceptación."
 
-            # Registrar la nueva descripción instantánea
-            current_id = self._get_instantaneous_description(
-                tape, head, current_state
-            )
-            steps.append(current_id)
-
-        # Se alcanzó el límite de pasos
         return SimulationResult(
             input_string=input_string,
-            accepted=False,
+            accepted=current_state in self._accepting_states,
             steps=steps,
             final_tape=self._get_final_tape(tape),
-            halted_reason=(
-                f"Se alcanzó el límite de {max_steps} pasos. "
-                f"Posible loop infinito."
-            )
+            halted_reason=reason,
+            limit_reached=limit_reached,
+            applied_transitions=applied_transitions,
         )

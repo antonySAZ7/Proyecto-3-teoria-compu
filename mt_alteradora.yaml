@@ -1,250 +1,64 @@
-# ============================================================
-# MT Alteradora: Invertir (reversa) de una cadena
-# ============================================================
-# Esta Máquina de Turing toma una cadena sobre {a, b} y produce
-# su reversa en la cinta.
-#
-# Ejemplo: "abba" → "abba" (palíndromo, no cambia)
-#          "aabbb" → "bbbaa"
-#
-# Algoritmo:
-#   Fase 1 (qi): Colocar un marcador H al final de la entrada
-#   Fase 2 (q0): Tomar el carácter más a la DERECHA sin procesar,
-#                llevarlo al final (después de H) — esto construye
-#                la cadena invertida a la derecha de H
-#   Fase 3 (q3): Limpieza — borrar las X's y el marcador H,
-#                dejando solo la cadena invertida en la cinta
-#
-# Nota: Se toma del lado DERECHO para que al ir apilando a la
-# derecha de H, el resultado sea la reversa.
-# ============================================================
-
+# Invierte una cadena sobre {a, b} en las mismas celdas que ocupaba la entrada.
+# Invariante: X (a) e Y (b) marcan los extremos que ya tienen su valor final.
+# P marca el extremo izquierdo del segmento pendiente durante un intercambio.
 mt:
-  states: [qi, qi2, q0, q0b, q1a, q1b, q2, q3, q4, qf]
+  states: [qElegir, qBuscarA, qBuscarB, qCambiarA, qCambiarB, qVolverA, qVolverB, qInicio, qLimpiar, qf]
   input_alphabet: [a, b]
-  tape_alphabet: [a, b, X, H, B]
-  initial_state: qi
+  tape_alphabet: [a, b, X, Y, P, B]
+  initial_state: qElegir
   accept_states: [qf]
   transitions:
-    # ══════════════════════════════════════════════════════════
-    # FASE 1: Colocar marcador H al final de la entrada
-    # ══════════════════════════════════════════════════════════
+    # Reservar el extremo izquierdo y recordar en el estado si era a o b.
+    - {state: qElegir, read: [a], write: [P], move: R, next: qBuscarA}
+    - {state: qElegir, read: [b], write: [P], move: R, next: qBuscarB}
+    # Una marca significa que los extremos ya se encontraron; B admite ε.
+    - {state: qElegir, read: [X], write: [X], move: L, next: qInicio}
+    - {state: qElegir, read: [Y], write: [Y], move: L, next: qInicio}
+    - {state: qElegir, read: [B], write: [B], move: R, next: qf}
 
-    # qi: Moverse a la derecha hasta encontrar el blanco
-    - state: qi
-      read: [a]
-      write: [a]
-      move: R
-      next: qi
-    - state: qi
-      read: [b]
-      write: [b]
-      move: R
-      next: qi
-    # qi: Encontramos blanco → colocar H y regresar
-    - state: qi
-      read: [B]
-      write: [H]
-      move: L
-      next: qi2
+    # Ir al extremo derecho del segmento pendiente, delimitado por una marca o B.
+    - {state: qBuscarA, read: [a], write: [a], move: R, next: qBuscarA}
+    - {state: qBuscarA, read: [b], write: [b], move: R, next: qBuscarA}
+    - {state: qBuscarA, read: [X], write: [X], move: L, next: qCambiarA}
+    - {state: qBuscarA, read: [Y], write: [Y], move: L, next: qCambiarA}
+    - {state: qBuscarA, read: [B], write: [B], move: L, next: qCambiarA}
+    - {state: qBuscarB, read: [a], write: [a], move: R, next: qBuscarB}
+    - {state: qBuscarB, read: [b], write: [b], move: R, next: qBuscarB}
+    - {state: qBuscarB, read: [X], write: [X], move: L, next: qCambiarB}
+    - {state: qBuscarB, read: [Y], write: [Y], move: L, next: qCambiarB}
+    - {state: qBuscarB, read: [B], write: [B], move: L, next: qCambiarB}
 
-    # qi2: Regresar al inicio de la cadena
-    - state: qi2
-      read: [a]
-      write: [a]
-      move: L
-      next: qi2
-    - state: qi2
-      read: [b]
-      write: [b]
-      move: L
-      next: qi2
-    # qi2: Llegamos al borde izquierdo → iniciar fase principal
-    - state: qi2
-      read: [B]
-      write: [B]
-      move: R
-      next: q0
+    # Escribir el valor izquierdo en el extremo derecho y recordar el valor desplazado.
+    - {state: qCambiarA, read: [a], write: [X], move: L, next: qVolverA}
+    - {state: qCambiarA, read: [b], write: [X], move: L, next: qVolverB}
+    - {state: qCambiarB, read: [a], write: [Y], move: L, next: qVolverA}
+    - {state: qCambiarB, read: [b], write: [Y], move: L, next: qVolverB}
+    # Si ambos extremos son P, es el centro de una entrada impar. Se restaura.
+    - {state: qCambiarA, read: [P], write: [a], move: L, next: qInicio}
+    - {state: qCambiarB, read: [P], write: [b], move: L, next: qInicio}
 
-    # ══════════════════════════════════════════════════════════
-    # FASE 2: Tomar el carácter más a la derecha, llevarlo
-    #         después de H para construir la reversa
-    # ══════════════════════════════════════════════════════════
+    # Volver a P, escribir el valor derecho y pasar al siguiente par.
+    - {state: qVolverA, read: [a], write: [a], move: L, next: qVolverA}
+    - {state: qVolverA, read: [b], write: [b], move: L, next: qVolverA}
+    - {state: qVolverA, read: [P], write: [X], move: R, next: qElegir}
+    - {state: qVolverB, read: [a], write: [a], move: L, next: qVolverB}
+    - {state: qVolverB, read: [b], write: [b], move: L, next: qVolverB}
+    - {state: qVolverB, read: [P], write: [Y], move: R, next: qElegir}
 
-    # q0: Moverse a la derecha hasta encontrar H (pasando por todo)
-    - state: q0
-      read: [a]
-      write: [a]
-      move: R
-      next: q0
-    - state: q0
-      read: [b]
-      write: [b]
-      move: R
-      next: q0
-    - state: q0
-      read: [X]
-      write: [X]
-      move: R
-      next: q0
-    # q0: Encontramos H → ir a la izquierda a buscar el último sin procesar
-    - state: q0
-      read: [H]
-      write: [H]
-      move: L
-      next: q0b
+    # Regresar al blanco izquierdo y restaurar los símbolos definitivos.
+    - {state: qInicio, read: [X], write: [X], move: L, next: qInicio}
+    - {state: qInicio, read: [Y], write: [Y], move: L, next: qInicio}
+    - {state: qInicio, read: [B], write: [B], move: R, next: qLimpiar}
+    - {state: qLimpiar, read: [X], write: [a], move: R, next: qLimpiar}
+    - {state: qLimpiar, read: [Y], write: [b], move: R, next: qLimpiar}
+    - {state: qLimpiar, read: [a], write: [a], move: R, next: qLimpiar}
+    - {state: qLimpiar, read: [b], write: [b], move: R, next: qLimpiar}
+    - {state: qLimpiar, read: [B], write: [B], move: L, next: qf}
 
-    # q0b: Buscar el carácter más a la derecha sin marcar
-    # Saltar X's (ya procesados)
-    - state: q0b
-      read: [X]
-      write: [X]
-      move: L
-      next: q0b
-    # Encontramos 'a' → marcar como X, recordar 'a'
-    - state: q0b
-      read: [a]
-      write: [X]
-      move: R
-      next: q1a
-    # Encontramos 'b' → marcar como X, recordar 'b'
-    - state: q0b
-      read: [b]
-      write: [X]
-      move: R
-      next: q1b
-    # Encontramos blanco → todos los caracteres ya procesados → limpieza
-    - state: q0b
-      read: [B]
-      write: [B]
-      move: R
-      next: q3
-
-    # q1a: Llevando 'a' hacia la derecha, buscar el primer blanco después de H
-    - state: q1a
-      read: [a]
-      write: [a]
-      move: R
-      next: q1a
-    - state: q1a
-      read: [b]
-      write: [b]
-      move: R
-      next: q1a
-    - state: q1a
-      read: [X]
-      write: [X]
-      move: R
-      next: q1a
-    - state: q1a
-      read: [H]
-      write: [H]
-      move: R
-      next: q1a
-    # q1a: Encontramos blanco → depositar 'a' aquí
-    - state: q1a
-      read: [B]
-      write: [a]
-      move: L
-      next: q2
-
-    # q1b: Llevando 'b' hacia la derecha, buscar el primer blanco después de H
-    - state: q1b
-      read: [a]
-      write: [a]
-      move: R
-      next: q1b
-    - state: q1b
-      read: [b]
-      write: [b]
-      move: R
-      next: q1b
-    - state: q1b
-      read: [X]
-      write: [X]
-      move: R
-      next: q1b
-    - state: q1b
-      read: [H]
-      write: [H]
-      move: R
-      next: q1b
-    # q1b: Encontramos blanco → depositar 'b' aquí
-    - state: q1b
-      read: [B]
-      write: [b]
-      move: L
-      next: q2
-
-    # q2: Regresar al inicio (borde izquierdo de la cinta)
-    - state: q2
-      read: [a]
-      write: [a]
-      move: L
-      next: q2
-    - state: q2
-      read: [b]
-      write: [b]
-      move: L
-      next: q2
-    - state: q2
-      read: [X]
-      write: [X]
-      move: L
-      next: q2
-    - state: q2
-      read: [H]
-      write: [H]
-      move: L
-      next: q2
-    # q2: Llegamos al borde izquierdo → reiniciar búsqueda
-    - state: q2
-      read: [B]
-      write: [B]
-      move: R
-      next: q0
-
-    # ══════════════════════════════════════════════════════════
-    # FASE 3: Limpieza — borrar X's y H
-    # ══════════════════════════════════════════════════════════
-    # Cuando q0b encuentra B, todos los chars originales son X.
-    # Ahora estamos en las X's, moviéndonos a la derecha.
-
-    # q3: Borrar X's moviéndose a la derecha
-    - state: q3
-      read: [X]
-      write: [B]
-      move: R
-      next: q3
-    # q3: Encontramos H → borrarlo y aceptar
-    - state: q3
-      read: [H]
-      write: [B]
-      move: R
-      next: q4
-
-    # q4: Ahora estamos al inicio de la cadena invertida → aceptar
-    - state: q4
-      read: [a]
-      write: [a]
-      move: L
-      next: qf
-    - state: q4
-      read: [b]
-      write: [b]
-      move: L
-      next: qf
-    - state: q4
-      read: [B]
-      write: [B]
-      move: L
-      next: qf
-
-# ============================================================
-# Cadenas de prueba (4 cadenas con longitud >= 5)
-# ============================================================
+# Los cuatro casos tienen longitud >= 5, cubren longitudes pares e impares
+# y muestran un cambio visible en la cinta.
 inputs:
-  - "aabbb"          # → "bbbaa"
-  - "ababa"          # → "ababa" (palíndromo)
-  - "aabba"          # → "abbaa"
-  - "baaab"          # → "baaab" (palíndromo)
+  - "aabbb"    # bbbaa
+  - "aabba"    # abbaa
+  - "aaabb"    # bbaaa
+  - "ababba"   # abbaba
