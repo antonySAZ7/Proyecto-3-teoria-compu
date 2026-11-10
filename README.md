@@ -16,6 +16,8 @@ Incluimos dos máquinas. La reconocedora verifica que una cadena tenga bloques c
 
 Desde el menú podemos elegir un caso o escribir nuestra propia cadena. Al avanzar con Espacio, vemos qué leyó la máquina, qué escribió, cómo movió el cabezal y a qué estado pasó. Al final podemos revisar la cinta y el motivo por el que se detuvo.
 
+[Video del proyecto](https://www.youtube.com/watch?v=_ftb73exxbQ&t=10s)
+
 ---
 
 ## 1. Instalación
